@@ -2069,6 +2069,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								shouldSuspendModel = true
 								setModelQuota = true
 							}
+							// Detect weekly quota exhaustion and schedule an async disable.
+							// Distinguished from short-term rate limits by checking the error
+							// body for "usage_limit_reached" (Codex API) or "insufficient_quota"
+							// (standard OpenAI API).
+							if isWeeklyQuotaExhaustedError(result.Error) {
+								resetAt := resolveQuotaResetAt(result.RetryAfter, now)
+								authIDCopy := auth.ID
+								go m.disableAuthForQuota(authIDCopy, resetAt)
+							}
 						case 408, 500, 502, 503, 504:
 							if disableCooling {
 								state.NextRetryAfter = time.Time{}
@@ -2932,6 +2941,7 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 
 	loop.rebuild(time.Now())
 	go loop.run(ctx)
+	m.startQuotaRevivalLoop(ctx)
 }
 
 // StopAutoRefresh cancels the background refresh loop, if running.

@@ -86,6 +86,10 @@ type Auth struct {
 	NextRefreshAfter time.Time `json:"next_refresh_after"`
 	// NextRetryAfter is the earliest time a retry should retrigger.
 	NextRetryAfter time.Time `json:"next_retry_after"`
+	// QuotaResetAt is the time when the weekly Codex quota will reset.
+	// When non-zero and Disabled is true, the revival loop uses this to re-enable
+	// the account automatically once the reset time has passed.
+	QuotaResetAt time.Time `json:"quota_reset_at,omitempty"`
 	// ModelStates tracks per-model runtime availability data.
 	ModelStates map[string]*ModelState `json:"model_states,omitempty"`
 
