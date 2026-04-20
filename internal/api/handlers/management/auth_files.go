@@ -1907,7 +1907,7 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 
 		// Create token storage and persist
 		tokenStorage := openaiAuth.CreateTokenStorage(bundle)
-		fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
+		fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, time.Now().Format("0102"), true)
 		record := &coreauth.Auth{
 			ID:       fileName,
 			Provider: "codex",

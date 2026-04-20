@@ -271,7 +271,7 @@ func (a *CodexAuthenticator) buildAuthRecord(authSvc *codex.CodexAuth, authBundl
 		}
 	}
 
-	fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
+	fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, time.Now().Format("0102"), true)
 	metadata := map[string]any{
 		"email": tokenStorage.Email,
 	}

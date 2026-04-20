@@ -9,13 +9,20 @@ import (
 // CredentialFileName returns the filename used to persist Codex OAuth credentials.
 // When planType is available (e.g. "plus", "team"), it is appended after the email
 // as a suffix to disambiguate subscriptions.
-func CredentialFileName(email, planType, hashAccountID string, includeProviderPrefix bool) string {
+// When createdDate is non-empty (format: MMDD, e.g. "0420"), it is inserted after
+// the provider prefix to indicate the account binding date.
+func CredentialFileName(email, planType, hashAccountID, createdDate string, includeProviderPrefix bool) string {
 	email = strings.TrimSpace(email)
 	plan := normalizePlanTypeForFilename(planType)
+	createdDate = strings.TrimSpace(createdDate)
 
 	prefix := ""
 	if includeProviderPrefix {
-		prefix = "codex"
+		if createdDate != "" {
+			prefix = fmt.Sprintf("codex-%s", createdDate)
+		} else {
+			prefix = "codex"
+		}
 	}
 
 	if plan == "" {
