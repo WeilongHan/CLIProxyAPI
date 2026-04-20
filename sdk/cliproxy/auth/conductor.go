@@ -2108,11 +2108,14 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			// immediate OAuth refresh so the account recovers quickly instead of
 			// waiting for the 30-minute Unavailable window to expire.
 			if isTokenExpiredError(result.Error) {
-				// Shorten the unavailable window so that a successful refresh
-				// (which clears Unavailable) takes effect quickly, and to bound
-				// the retry window if the refresh itself fails.
-				auth.NextRetryAfter = now.Add(2 * time.Minute)
 				authIDCopy := auth.ID
+				// Shorten the auth-level unavailable window only when
+				// applyAuthFailureState was actually called (no model in result).
+				// For model-scoped requests the failure is tracked in ModelState,
+				// not on auth directly, so we must not touch auth.NextRetryAfter.
+				if result.Model == "" {
+					auth.NextRetryAfter = now.Add(2 * time.Minute)
+				}
 				go m.queueRefreshReschedule(authIDCopy)
 			}
 		}
