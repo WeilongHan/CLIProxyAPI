@@ -2097,6 +2097,13 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			} else {
 				applyAuthFailureState(auth, result.Error, result.RetryAfter, now)
 			}
+			// Detect permanent credential failures (invalid_grant, account banned, etc.)
+			// and schedule an async deletion so the file is removed and the entry is
+			// evicted from the scheduler/refresh-loop without blocking the request path.
+			if isIrrecoverableAuthError(result.Error) {
+				authIDCopy := auth.ID
+				go m.deleteAuthPermanent(authIDCopy)
+			}
 		}
 
 		_ = m.persist(ctx, auth)
