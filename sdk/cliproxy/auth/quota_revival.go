@@ -241,17 +241,23 @@ func (m *Manager) reviveQuotaAuth(ctx context.Context, auth *Auth) {
 	logger.Info("quota: account revived successfully")
 }
 
-// refreshAuthForRevival attempts to refresh the auth token using the registered
-// store. If the store is unavailable or the refresh fails it returns the original
-// auth unchanged so the caller can still re-enable with the existing token.
+// refreshAuthForRevival attempts to refresh the auth token using the executor
+// registered for the auth's provider. If no executor is available or the
+// refresh fails it returns an error so the caller can skip revival.
 func (m *Manager) refreshAuthForRevival(ctx context.Context, auth *Auth) (*Auth, error) {
-	if m.store == nil {
+	m.mu.RLock()
+	exec := m.executors[auth.Provider]
+	m.mu.RUnlock()
+
+	if exec == nil {
+		// No executor — return the auth as-is so the caller can still re-enable it.
 		return auth, nil
 	}
+
 	refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	refreshed, err := m.store.Refresh(refreshCtx, auth)
+	refreshed, err := exec.Refresh(refreshCtx, auth.Clone())
 	if err != nil {
 		return nil, err
 	}
