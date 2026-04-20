@@ -160,6 +160,12 @@ func (m *Manager) disableAuthForQuota(authID string, initialResetAt time.Time) {
 	auth.Status = StatusDisabled
 	auth.StatusMessage = "quota exhausted"
 	auth.UpdatedAt = time.Now()
+	// Persist quota_reset_at into Metadata so it survives a process restart
+	// via the existing token-file serialization path (MergeMetadata).
+	if auth.Metadata == nil {
+		auth.Metadata = make(map[string]any)
+	}
+	auth.Metadata["quota_reset_at"] = resetAt.Format(time.RFC3339)
 	m.mu.Unlock()
 
 	if _, err := m.Update(ctx, auth); err != nil {
@@ -190,6 +196,28 @@ func (m *Manager) startQuotaRevivalLoop(ctx context.Context) {
 	}()
 }
 
+// quotaResetAtFor returns the effective quota reset time for auth.
+// It checks the in-memory QuotaResetAt field first (set during the current
+// process lifetime), then falls back to Metadata["quota_reset_at"] which
+// survives process restarts via the token-file serialization path.
+func quotaResetAtFor(auth *Auth) time.Time {
+	if !auth.QuotaResetAt.IsZero() {
+		return auth.QuotaResetAt
+	}
+	if auth.Metadata == nil {
+		return time.Time{}
+	}
+	s, _ := auth.Metadata["quota_reset_at"].(string)
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 // runQuotaRevivalCycle finds all accounts that are disabled due to quota
 // exhaustion and whose reset time has arrived, then re-enables each one.
 func (m *Manager) runQuotaRevivalCycle(ctx context.Context) {
@@ -201,7 +229,8 @@ func (m *Manager) runQuotaRevivalCycle(ctx context.Context) {
 		if auth == nil || !auth.Disabled {
 			continue
 		}
-		if auth.QuotaResetAt.IsZero() || now.Before(auth.QuotaResetAt) {
+		resetAt := quotaResetAtFor(auth)
+		if resetAt.IsZero() || now.Before(resetAt) {
 			continue
 		}
 		candidates = append(candidates, auth.Clone())
@@ -232,6 +261,11 @@ func (m *Manager) reviveQuotaAuth(ctx context.Context, auth *Auth) {
 	refreshedAuth.Status = StatusActive
 	refreshedAuth.StatusMessage = ""
 	refreshedAuth.UpdatedAt = time.Now()
+	// Clear the persisted quota_reset_at so the file no longer marks this account
+	// as quota-exhausted after the next save.
+	if refreshedAuth.Metadata != nil {
+		delete(refreshedAuth.Metadata, "quota_reset_at")
+	}
 
 	if _, err := m.Update(ctx, refreshedAuth); err != nil {
 		logger.WithError(err).Warn("quota: failed to persist revived state")
