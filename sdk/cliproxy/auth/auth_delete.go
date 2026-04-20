@@ -8,6 +8,28 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// isTokenExpiredError returns true when a 401 response indicates the access
+// token has expired but the account itself is still valid. In this case the
+// refresh token should still work and we can recover by re-running the OAuth
+// refresh flow.
+func isTokenExpiredError(err *Error) bool {
+	if err == nil || err.HTTPStatus != 401 {
+		return false
+	}
+	msg := strings.ToLower(err.Message)
+	for _, signal := range []string{
+		"token_expired",
+		"token expired",
+		"access token expired",
+		"authentication token is expired",
+	} {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+	return false
+}
+
 // isIrrecoverableAuthError returns true when a 401 response signals a permanent
 // credential failure that cannot be fixed by retrying or token refresh.
 //

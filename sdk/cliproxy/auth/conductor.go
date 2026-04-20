@@ -2104,6 +2104,17 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				authIDCopy := auth.ID
 				go m.deleteAuthPermanent(authIDCopy)
 			}
+			// On token_expired 401 the refresh token is still valid; trigger an
+			// immediate OAuth refresh so the account recovers quickly instead of
+			// waiting for the 30-minute Unavailable window to expire.
+			if isTokenExpiredError(result.Error) {
+				// Shorten the unavailable window so that a successful refresh
+				// (which clears Unavailable) takes effect quickly, and to bound
+				// the retry window if the refresh itself fails.
+				auth.NextRetryAfter = now.Add(2 * time.Minute)
+				authIDCopy := auth.ID
+				go m.queueRefreshReschedule(authIDCopy)
+			}
 		}
 
 		_ = m.persist(ctx, auth)
@@ -3257,6 +3268,10 @@ func (m *Manager) refreshAuth(ctx context.Context, id string) {
 	updated.NextRefreshAfter = time.Time{}
 	updated.LastError = nil
 	updated.UpdatedAt = now
+	// If the account was marked unavailable due to a token_expired 401 before
+	// this refresh succeeded, clear the flag so it becomes routable immediately.
+	updated.Unavailable = false
+	updated.NextRetryAfter = time.Time{}
 	_, _ = m.Update(ctx, updated)
 }
 
