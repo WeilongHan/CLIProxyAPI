@@ -22,6 +22,9 @@ func isTokenExpiredError(err *Error) bool {
 		"token expired",
 		"access token expired",
 		"authentication token is expired",
+		"token_invalidated",
+		"token has been invalidated",
+		"authentication token has been invalidated",
 	} {
 		if strings.Contains(msg, signal) {
 			return true
@@ -64,7 +67,8 @@ func isIrrecoverableAuthError(err *Error) bool {
 }
 
 // deleteAuthPermanent removes an auth entry whose credentials are permanently
-// invalid (e.g. refresh token revoked, account banned). It:
+// invalid or have been consumed (e.g. refresh token revoked, account banned,
+// token_expired with no recoverable refresh token). It:
 //  1. Deletes the backing file via the store (FileTokenStore.Delete calls os.Remove).
 //  2. Purges the entry from the in-memory auth map.
 //  3. Evicts it from the scheduler and the refresh loop.
@@ -108,5 +112,5 @@ func (m *Manager) deleteAuthPermanent(authID string) {
 		m.refreshLoop.remove(authID)
 	}
 
-	log.WithField("auth_id", authID).Info("auth-delete: account permanently deleted due to irrecoverable auth failure (invalid_grant / account deactivated)")
+	log.WithField("auth_id", authID).Info("auth-delete: account permanently deleted (token_expired / invalid_grant / account deactivated)")
 }
