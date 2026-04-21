@@ -8,42 +8,21 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// isTokenExpiredError returns true when a 401 response indicates the access
-// token has expired but the account itself is still valid. In this case the
-// refresh token should still work and we can recover by re-running the OAuth
-// refresh flow.
+// isTokenExpiredError returns true for any 401 response.
+//
+// When a 401 reaches the request handler, the proactive auto-refresh loop has
+// already had the opportunity to recover a simple token expiry. Any 401 that
+// still surfaces here means the credentials are broken beyond what a token
+// refresh can fix. Deleting the auth file lets the bihourly rebind task
+// restore the account via a fresh OAuth flow.
 func isTokenExpiredError(err *Error) bool {
-	if err == nil || err.HTTPStatus != 401 {
-		return false
-	}
-	msg := strings.ToLower(err.Message)
-	for _, signal := range []string{
-		"token_expired",
-		"token expired",
-		"access token expired",
-		"authentication token is expired",
-		"token_invalidated",
-		"token has been invalidated",
-		"authentication token has been invalidated",
-	} {
-		if strings.Contains(msg, signal) {
-			return true
-		}
-	}
-	return false
+	return err != nil && err.HTTPStatus == 401
 }
 
-// isIrrecoverableAuthError returns true when a 401 response signals a permanent
-// credential failure that cannot be fixed by retrying or token refresh.
-//
-// Detected signals (subset of cleaner's P401/PREMOVE patterns):
-//   - invalid_grant        : OAuth refresh token revoked
-//   - refresh_token_reused : refresh token reuse detected (security block)
-//   - account_deactivated  : account banned / closed by provider
-//   - account_disabled     : account disabled by provider
-//
-// Deliberately conservative: generic "unauthorized" or "token_expired" are NOT
-// included because the auto-refresh loop can recover those.
+// isIrrecoverableAuthError is kept for semantic clarity but is now superseded
+// by isTokenExpiredError covering all 401s. It remains to handle cases where
+// the account should also be marked deactivated in the DB (account_deactivated /
+// account_disabled signals).
 func isIrrecoverableAuthError(err *Error) bool {
 	if err == nil || err.HTTPStatus != 401 {
 		return false

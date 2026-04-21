@@ -2104,19 +2104,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				authIDCopy := auth.ID
 				go m.deleteAuthPermanent(authIDCopy)
 			}
-			// On token_expired 401 the refresh token is still valid; trigger an
-			// immediate OAuth refresh so the account recovers quickly instead of
-			// waiting for the 30-minute Unavailable window to expire.
+			// On token_expired 401 the refresh token has likely been consumed or
+			// invalidated. Delete the auth file so the account can be re-bound via
+			// the automated rebind task rather than spinning in the refresh loop.
 			if isTokenExpiredError(result.Error) {
 				authIDCopy := auth.ID
-				// Shorten the auth-level unavailable window only when
-				// applyAuthFailureState was actually called (no model in result).
-				// For model-scoped requests the failure is tracked in ModelState,
-				// not on auth directly, so we must not touch auth.NextRetryAfter.
-				if result.Model == "" {
-					auth.NextRetryAfter = now.Add(2 * time.Minute)
-				}
-				go m.queueRefreshReschedule(authIDCopy)
+				go m.deleteAuthPermanent(authIDCopy)
 			}
 		}
 
