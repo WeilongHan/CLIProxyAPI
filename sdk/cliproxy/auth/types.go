@@ -270,6 +270,19 @@ func (a *Auth) ProxyInfo() string {
 	return "via proxy"
 }
 
+// ClearQuotaResetMarker removes the persisted weekly-quota reset marker.
+// This should be called whenever an auth becomes usable again so stale
+// quota metadata does not linger in management output or persisted files.
+func (a *Auth) ClearQuotaResetMarker() {
+	if a == nil {
+		return
+	}
+	a.QuotaResetAt = time.Time{}
+	if a.Metadata != nil {
+		delete(a.Metadata, "quota_reset_at")
+	}
+}
+
 // DisableCoolingOverride returns the auth-file scoped disable_cooling override when present.
 // The value is read from metadata key "disable_cooling" (or legacy "disable-cooling").
 func (a *Auth) DisableCoolingOverride() (bool, bool) {

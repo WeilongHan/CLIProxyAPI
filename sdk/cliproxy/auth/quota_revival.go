@@ -256,16 +256,11 @@ func (m *Manager) reviveQuotaAuth(ctx context.Context, auth *Auth) {
 
 	// Re-enable the account.
 	refreshedAuth.Disabled = false
-	refreshedAuth.QuotaResetAt = time.Time{}
+	refreshedAuth.ClearQuotaResetMarker()
 	refreshedAuth.Quota = QuotaState{}
 	refreshedAuth.Status = StatusActive
 	refreshedAuth.StatusMessage = ""
 	refreshedAuth.UpdatedAt = time.Now()
-	// Clear the persisted quota_reset_at so the file no longer marks this account
-	// as quota-exhausted after the next save.
-	if refreshedAuth.Metadata != nil {
-		delete(refreshedAuth.Metadata, "quota_reset_at")
-	}
 
 	if _, err := m.Update(ctx, refreshedAuth); err != nil {
 		logger.WithError(err).Warn("quota: failed to persist revived state")

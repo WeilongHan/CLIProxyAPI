@@ -2292,6 +2292,7 @@ func clearAuthStateOnSuccess(auth *Auth, now time.Time) {
 		return
 	}
 	auth.Unavailable = false
+	auth.ClearQuotaResetMarker()
 	auth.Status = StatusActive
 	auth.StatusMessage = ""
 	auth.Quota.Exceeded = false
