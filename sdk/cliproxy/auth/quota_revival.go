@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,41 @@ const (
 	whamUsageURL       = "https://chatgpt.com/backend-api/wham/usage"
 	whamUsageUserAgent = "Mozilla/5.0 CLIProxyAPI/1.0"
 )
+
+type whamUsageError struct {
+	statusCode int
+	body       string
+}
+
+func (e *whamUsageError) Error() string {
+	body := strings.TrimSpace(e.body)
+	if body == "" {
+		return fmt.Sprintf("wham/usage http %d", e.statusCode)
+	}
+	if len(body) > 200 {
+		body = body[:200]
+	}
+	return fmt.Sprintf("wham/usage http %d: %s", e.statusCode, body)
+}
+
+func isWhamUsageTokenExpiredError(err error) bool {
+	var usageErr *whamUsageError
+	if !errors.As(err, &usageErr) || usageErr.statusCode != http.StatusUnauthorized {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(usageErr.body))
+	for _, signal := range []string{
+		"provided authentication token is expired",
+		"token_expired",
+		"please try signing in again",
+		"sign in again",
+	} {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+	return false
+}
 
 // isWeeklyQuotaExhaustedError returns true when the error represents a weekly
 // Codex quota exhaustion, as opposed to a short-term rate limit.
@@ -86,6 +122,12 @@ func fetchWhamUsageResetAt(ctx context.Context, accessToken string) (time.Time, 
 	if err != nil {
 		return time.Time{}, err
 	}
+	if resp.StatusCode != http.StatusOK {
+		return time.Time{}, &whamUsageError{
+			statusCode: resp.StatusCode,
+			body:       string(body),
+		}
+	}
 
 	var payload struct {
 		RateLimit struct {
@@ -117,6 +159,14 @@ func fetchWhamUsageResetAt(ctx context.Context, accessToken string) (time.Time, 
 // This function is designed to be called as a goroutine and must not block the
 // hot request path.
 func (m *Manager) disableAuthForQuota(authID string, initialResetAt time.Time) {
+	m.disableAuthForQuotaWithUsageProbe(authID, initialResetAt, fetchWhamUsageResetAt)
+}
+
+func (m *Manager) disableAuthForQuotaWithUsageProbe(
+	authID string,
+	initialResetAt time.Time,
+	usageProbe func(context.Context, string) (time.Time, error),
+) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -139,12 +189,18 @@ func (m *Manager) disableAuthForQuota(authID string, initialResetAt time.Time) {
 	// If the initial estimate is just the fallback (exactly 7 days), try to
 	// improve it with a wham/usage call while we hold no locks.
 	if accessToken != "" && initialResetAt.Sub(time.Now()) >= quotaFallbackResetDuration-time.Minute {
-		if t, err := fetchWhamUsageResetAt(ctx, accessToken); err == nil {
+		if t, err := usageProbe(ctx, accessToken); err == nil {
 			resetAt = t
 			log.WithFields(log.Fields{
 				"auth_id":  authID,
 				"reset_at": resetAt.Format(time.RFC3339),
 			}).Debug("quota: obtained precise reset_at from wham/usage")
+		} else if isWhamUsageTokenExpiredError(err) {
+			log.WithError(err).WithField("auth_id", authID).Warn("quota: wham/usage reported expired token, deleting auth for rebind")
+			go m.deleteAuthPermanent(authID)
+			return
+		} else {
+			log.WithError(err).WithField("auth_id", authID).Debug("quota: failed to fetch precise reset_at from wham/usage, using fallback")
 		}
 	}
 
