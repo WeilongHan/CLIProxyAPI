@@ -1105,6 +1105,7 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
 		targetAuth.Status = coreauth.StatusDisabled
 		targetAuth.StatusMessage = "disabled via management API"
 	} else {
+		targetAuth.ClearQuotaResetMarker()
 		targetAuth.Status = coreauth.StatusActive
 		targetAuth.StatusMessage = ""
 	}

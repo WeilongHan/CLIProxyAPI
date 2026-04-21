@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestManager_Update_PreservesModelStates(t *testing.T) {
@@ -200,5 +201,44 @@ func TestManager_Update_ActiveInheritsModelStates(t *testing.T) {
 	}
 	if state.Quota.BackoffLevel != backoffLevel {
 		t.Fatalf("expected BackoffLevel to be %d, got %d", backoffLevel, state.Quota.BackoffLevel)
+	}
+}
+
+func TestClearAuthStateOnSuccess_ClearsQuotaResetMarker(t *testing.T) {
+	now := time.Now()
+	auth := &Auth{
+		ID:           "auth-success",
+		Provider:     "codex",
+		Status:       StatusDisabled,
+		QuotaResetAt: now.Add(time.Hour),
+		Metadata: map[string]any{
+			"quota_reset_at": now.Add(time.Hour).Format(time.RFC3339),
+		},
+		Quota: QuotaState{
+			Exceeded:      true,
+			Reason:        "quota exhausted",
+			NextRecoverAt: now.Add(time.Hour),
+			BackoffLevel:  2,
+		},
+		LastError: &Error{
+			Code:    "usage_limit_reached",
+			Message: "quota exhausted",
+		},
+		NextRetryAfter: now.Add(time.Minute),
+	}
+
+	clearAuthStateOnSuccess(auth, now)
+
+	if !auth.QuotaResetAt.IsZero() {
+		t.Fatalf("expected QuotaResetAt to be cleared, got %v", auth.QuotaResetAt)
+	}
+	if _, ok := auth.Metadata["quota_reset_at"]; ok {
+		t.Fatalf("expected metadata quota_reset_at to be deleted")
+	}
+	if auth.Quota.Exceeded {
+		t.Fatalf("expected quota exceeded flag to be cleared")
+	}
+	if auth.Status != StatusActive {
+		t.Fatalf("expected status active, got %v", auth.Status)
 	}
 }
